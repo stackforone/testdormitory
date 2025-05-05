@@ -1,0 +1,236 @@
+"use client"
+
+import type React from "react"
+
+import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useToast } from "@/components/ui/use-toast"
+import { updateContract } from "../actions"
+import { getTenants } from "@/app/tenants/actions"
+import { getRoomsForContract } from "../actions"
+import { formatDateForInput } from "@/lib/utils"
+
+interface EditContractDialogProps {
+  children: React.ReactNode
+  contract: {
+    id: string
+    tenant_id: string
+    room_id: string
+    start_date: string | null
+    end_date: string | null
+    status: string
+    deposit: number | null
+  }
+  onSuccess?: () => void
+}
+
+export function EditContractDialog({ children, contract, onSuccess }: EditContractDialogProps) {
+  const [open, setOpen] = useState(false)
+  const [tenantId, setTenantId] = useState(contract.tenant_id)
+  const [roomId, setRoomId] = useState(contract.room_id)
+  const [startDate, setStartDate] = useState(contract.start_date ? formatDateForInput(contract.start_date) : "")
+  const [endDate, setEndDate] = useState(contract.end_date ? formatDateForInput(contract.end_date) : "")
+  const [deposit, setDeposit] = useState(contract.deposit?.toString() || "")
+  const [status, setStatus] = useState(contract.status)
+  const [tenants, setTenants] = useState<{ id: string; name: string | null }[]>([])
+  const [rooms, setRooms] = useState<{ id: string; name: string; dorm_name: string }[]>([])
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const { toast } = useToast()
+  const router = useRouter()
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const [tenantsData, roomsData] = await Promise.all([getTenants(), getRoomsForContract()])
+        setTenants(tenantsData)
+        setRooms(roomsData)
+      } catch (error) {
+        toast({
+          title: "เกิดข้อผิดพลาด",
+          description: "ไม่สามารถโหลดข้อมูลได้",
+          variant: "destructive",
+        })
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    if (open) {
+      setIsLoading(true)
+      loadData()
+    }
+  }, [open, toast])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!tenantId) {
+      toast({
+        title: "กรุณาเลือกผู้เช่า",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!roomId) {
+      toast({
+        title: "กรุณาเลือกห้องพัก",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsSubmitting(true)
+
+    try {
+      await updateContract({
+        id: contract.id,
+        tenantId,
+        roomId,
+        startDate: startDate || null,
+        endDate: endDate || null,
+        deposit: deposit ? Number.parseFloat(deposit) : null,
+        status,
+      })
+
+      toast({
+        title: "แก้ไขสัญญาเช่าสำเร็จ",
+        description: "แก้ไขสัญญาเช่าเรียบร้อยแล้ว",
+      })
+
+      setOpen(false)
+      router.refresh()
+
+      if (onSuccess) {
+        onSuccess()
+      }
+    } catch (error) {
+      toast({
+        title: "เกิดข้อผิดพลาด",
+        description: "ไม่สามารถแก้ไขสัญญาเช่าได้ กรุณาลองใหม่อีกครั้ง",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>แก้ไขสัญญาเช่า</DialogTitle>
+          <DialogDescription>แก้ไขข้อมูลสัญญาเช่าตามที่ต้องการ</DialogDescription>
+        </DialogHeader>
+        {isLoading ? (
+          <div className="py-4 text-center">กำลังโหลดข้อมูล...</div>
+        ) : (
+          <form onSubmit={handleSubmit}>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="tenant">ผู้เช่า</Label>
+                <Select value={tenantId} onValueChange={setTenantId} required>
+                  <SelectTrigger id="tenant">
+                    <SelectValue placeholder="เลือกผู้เช่า" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {tenants.length > 0 ? (
+                      tenants.map((tenant) => (
+                        <SelectItem key={tenant.id} value={tenant.id}>
+                          {tenant.name || "ไม่ระบุชื่อ"}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="no-data" disabled>
+                        ไม่พบข้อมูลผู้เช่า
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="room">ห้องพัก</Label>
+                <Select value={roomId} onValueChange={setRoomId} required>
+                  <SelectTrigger id="room">
+                    <SelectValue placeholder="เลือกห้องพัก" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {rooms.length > 0 ? (
+                      rooms.map((room) => (
+                        <SelectItem key={room.id} value={room.id}>
+                          {room.name} ({room.dorm_name})
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="no-data" disabled>
+                        ไม่พบข้อมูลห้องพัก
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="start-date">วันที่เริ่มสัญญา</Label>
+                  <Input id="start-date" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="end-date">วันที่สิ้นสุดสัญญา</Label>
+                  <Input id="end-date" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="deposit">เงินประกัน (บาท)</Label>
+                  <Input
+                    id="deposit"
+                    type="number"
+                    value={deposit}
+                    onChange={(e) => setDeposit(e.target.value)}
+                    placeholder="ระบุจำนวนเงิน"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="status">สถานะสัญญา</Label>
+                  <Select value={status} onValueChange={setStatus}>
+                    <SelectTrigger id="status">
+                      <SelectValue placeholder="เลือกสถานะสัญญา" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">ใช้งาน</SelectItem>
+                      <SelectItem value="expired">หมดอายุ</SelectItem>
+                      <SelectItem value="cancelled">ยกเลิก</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                ยกเลิก
+              </Button>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? "กำลังบันทึก..." : "บันทึก"}
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
